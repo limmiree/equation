@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 풍선 터뜨리기 - 이차방정식 엔진</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose"></script>
+    <style>
+        body { text-align: center; background-color: #f8f9fa; font-family: 'Malgun Gothic', sans-serif; }
+        canvas { background: #e3f2fd; border: 3px solid #1976d2; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .status { font-size: 1.3rem; margin: 20px; font-weight: bold; color: #1565c0; }
+        #webcam-container { margin-bottom: 15px; border: 2px solid #ddd; display: inline-block; border-radius: 10px; overflow: hidden; }
+        .math-box { background: #fff; padding: 10px; display: inline-block; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>🎈 AI 풍선 터뜨리기</h1>
+    <div class="math-box">현재 적용된 물리 법칙: <b>$h = -5t^2 + 20t$</b></div>
+    <div class="status" id="label-container">AI를 불러오고 있습니다...</div>
+    <div id="webcam-container"></div>
+    <br>
+    <canvas id="gameCanvas" width="400" height="500"></canvas>
+
+    <script>
+        // 새로 주신 티처블 머신 모델 주소 적용
+        const URL = "https://teachablemachine.withgoogle.com/models/UwZCA2QmX/";
+        
+        let model, webcam, ctx, labelContainer;
+        let time = 0;
+        let isFiring = false;
+        let needleY = 450;
+        let balloonY = 100;
+        let isPopped = false;
+
+        async function init() {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            try {
+                model = await tmPose.load(modelURL, metadataURL);
+                const size = 200;
+                const flip = true; 
+                webcam = new tmPose.Webcam(size, size, flip); 
+                await webcam.setup(); 
+                await webcam.play();
+                window.requestAnimationFrame(loop);
+
+                const container = document.getElementById("webcam-container");
+                container.appendChild(webcam.canvas);
+                labelContainer = document.getElementById("label-container");
+                ctx = document.getElementById("gameCanvas").getContext("2d");
+            } catch (e) {
+                document.getElementById("label-container").innerHTML = "모델을 불러오지 못했습니다. 주소를 확인해주세요.";
+            }
+        }
+
+        async function loop(timestamp) {
+            webcam.update();
+            await predict();
+            updateGame();
+            draw();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+            const prediction = await model.predict(posenetOutput);
+
+            // 모델의 두 번째 클래스(index 1)가 '팔 올리기/동작'이라고 가정합니다.
+            // 인식 확률이 90%를 넘으면 발사!
+            if (prediction[1].probability > 0.90 && !isFiring) {
+                isFiring = true;
+                time = 0;
+                isPopped = false;
+            }
+            
+            if (prediction[1].probability > 0.9) {
+                labelContainer.innerHTML = "상태: 🔥 동작 감지! 바늘 발사!";
+                labelContainer.style.color = "#d32f2f";
+            } else {
+                labelContainer.innerHTML = "상태: 💤 대기 중 (팔을 올려보세요)";
+                labelContainer.style.color = "#1565c0";
+            }
+        }
+
+        function updateGame() {
+            if (isFiring) {
+                time += 0.05; // t값 증가
+                
+                // 이차방정식 알고리즘: h = -5t^2 + 20t
+                let height = (-5 * time * time) + (20 * time);
+                
+                // 픽셀 좌표 변환 (높이 1m당 약 15픽셀 이동)
+                needleY = 450 - (height * 15); 
+
+                // 풍선 적중 판정
+                if (Math.abs(needleY - balloonY) < 30 && !isPopped) {
+                    isPopped = true;
+                }
+
+                // 바닥 도착 시 초기화
+                if (needleY > 460 && time > 1) {
+                    isFiring = false;
+                    needleY = 450;
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, 400, 500);
+
+            // 풍선 그리기
+            if (!isPopped) {
+                ctx.beginPath();
+                ctx.arc(200, balloonY, 35, 0, Math.PI * 2);
+                ctx.fillStyle = "#f44336";
+                ctx.fill();
+                ctx.closePath();
+            } else {
+                ctx.font = "bold 40px Arial";
+                ctx.fillStyle = "#fbc02d";
+                ctx.fillText("💥 POP!", 140, balloonY);
+            }
+
+            // 바늘(발사체) 그리기
+            ctx.beginPath();
+            ctx.moveTo(200, needleY);
+            ctx.lineTo(200, needleY - 50);
+            ctx.strokeStyle = "#424242";
+            ctx.lineWidth = 4;
+            ctx.lineCap = "round";
+            ctx.stroke();
+        }
+
+        init();
+    </script>
+</body>
+</html>
